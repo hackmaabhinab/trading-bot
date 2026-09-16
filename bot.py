@@ -169,26 +169,39 @@ async def _keep_typing(bot, chat_id: int, stop_event: asyncio.event) -> None:
 # Commands (Journal, Stats, Onboarding)
 # --------------------------------------------------------------------------
 
-WELCOME_TEXT = (
+ONBOARDING_TEXT = (
     "*Institutional Risk & Execution Coach* — Online.\n\n"
-    "Before executing trades, let's establish your trading baseline.\n\n"
-    "Please reply with:\n"
-    "1️⃣ Your Primary Strategy (e.g., SMC/ICT, Price Action, Trend Breakouts)\n"
-    "2️⃣ Max Risk Per Trade (e.g., 0.5% or 1%)\n"
-    "3️⃣ Your Biggest Execution/Psychology Mistake (e.g., FOMO, Revenge Trading)\n\n"
-    "Commands:\n"
-    "• `/log Pair | Setup | Risk% | RR | Outcome | Notes` — Log completed trade\n"
+    "Before I approve or review any trades, I need your baseline profile. "
+    "Reply in one message with all three:\n\n"
+    "1️⃣ *Primary Strategy* (e.g., SMC/ICT, Price Action, Trend Breakouts)\n"
+    "2️⃣ *Max Risk Per Trade* (e.g., 0.5% or 1%)\n"
+    "3️⃣ *Biggest Execution/Psychology Flaw* (e.g., FOMO, Revenge Trading, Overtrading)\n\n"
+    "Once I have this, every setup you bring me will be checked against *your* rules — "
+    "not generic advice.\n\n"
+    "_Type /help any time to see available commands._"
+)
+
+HELP_TEXT = (
+    "*Commands:*\n"
+    "• `/start` — (Re)start onboarding and set your trading profile\n"
+    "• `/log Pair | Setup | Risk% | RR | Outcome | Notes` — Log a completed trade\n"
     "• `/stats` — Your performance metrics\n"
-    "• `/reset` — Reset session memory & profile"
+    "• `/reset` — Reset session memory & profile\n"
+    "• `/help` — Show this command list"
 )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reset_chat_session(update.effective_chat.id)
-    await update.message.reply_text(WELCOME_TEXT, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(ONBOARDING_TEXT, parse_mode=ParseMode.MARKDOWN)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text(HELP_TEXT, parse_mode=ParseMode.MARKDOWN)
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reset_chat_session(update.effective_chat.id)
-    await update.message.reply_text("🔄 Memory and session cleared. Send a message to start fresh.")
+    await update.message.reply_text(
+        "🔄 Memory and session cleared.\n\n" + ONBOARDING_TEXT, parse_mode=ParseMode.MARKDOWN
+    )
 
 async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -310,6 +323,7 @@ def main() -> None:
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("log", log_trade_command))
     application.add_handler(CommandHandler("stats", stats_command))
