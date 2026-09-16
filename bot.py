@@ -5,7 +5,7 @@ Persona: a strict SMC / ICT / Gold (XAUUSD) trading discipline coach.
 
 Stack:
   - python-telegram-bot  (v22, async)
-  - google-genai          (Gemini Developer API, gemini-2.5-flash)
+  - google-genai          (Gemini Developer API, gemini-3.6-flash)
 
 Run:
   python bot.py
@@ -46,7 +46,7 @@ load_dotenv()  # reads a local .env file, if present
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 
 if not TELEGRAM_BOT_TOKEN:
     sys.exit("Missing TELEGRAM_BOT_TOKEN. Set it in your .env file (see .env.example).")
@@ -79,10 +79,6 @@ logger = logging.getLogger("trading_coach_bot")
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # One multi-turn chat session per Telegram chat, so the coach keeps context
-# (risk rules already stated, the journal entry already shared, etc.)
-# NOTE: this lives in memory only and resets if the process restarts.
-# For persistence across restarts/redeploys, back this with a database
-# (e.g. store each chat's history and rehydrate the session on lookup).
 _chat_sessions: Dict[int, Any] = {}  # values are google.genai async Chat objects
 
 
@@ -239,8 +235,6 @@ def main() -> None:
     application.add_error_handler(error_handler)
 
     logger.info("Institutional Trading Coach bot starting (polling)...")
-    # drop_pending_updates avoids replaying a backlog of old messages (and
-    # sidesteps most telegram.error.Conflict issues) whenever you restart.
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
