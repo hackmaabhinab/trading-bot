@@ -1,10 +1,11 @@
 """
-Institutional Trading Coach — Telegram Bot (With SQLite Journaling)
-===================================================================
+Institutional Trading Coach — Telegram Bot
+==========================================
 Features:
-  - Per-user trade journaling & persistent database storage (SQLite)
-  - Commands: /journal, /stats, /admin_stats
-  - Gemini 3.6 Flash Integration for SMC/ICT execution coaching
+  - Personal Onboarding (Strategy, Risk & Psychological Profiling)
+  - Adaptive Pre-Trade Execution Checklist based on user profile
+  - SQLite Trade Journaling & Admin Tracking
+  - Powered by Gemini 3.6 Flash
 """
 
 from __future__ import annotations
@@ -40,17 +41,30 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")  # Optional: Your Telegram ID for /admin_stats
+ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
 
 if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
     sys.exit("Missing required environment variables.")
 
 SYSTEM_INSTRUCTION = (
-    "You are an expert Institutional Trading Coach specializing in SMC "
-    "(Smart Money Concepts), ICT, and Gold (XAUUSD). Your job is to act as "
-    "a strict, professional personal coach. Help traders pre-check their "
-    "risk management, analyze their trade journals, prevent emotional "
-    "revenge trading, and enforce discipline. Keep answers sharp, practical, and direct."
+    "You are a strict, world-class Institutional Risk Manager & Trading Coach. "
+    "Your objective is to enforce maximum discipline, prevent emotional revenge trading, "
+    "and protect capital.\n\n"
+    
+    "BEHAVIOR RULES:\n"
+    "1. NEW USER ONBOARDING: If a user starts a conversation or seems new, ask them concise questions "
+    "to extract their trading profile: Their Primary Strategy (e.g., SMC/ICT, Chart Patterns, Price Action), "
+    "Max Risk per trade (e.g., 0.5% or 1%), and their biggest Psychological Weakness (e.g., FOMO, Early Exit, Overtrading).\n"
+    
+    "2. ADAPTIVE PRE-TRADE CHECKLIST: Whenever a user shares a trade setup, idea, or entry signal, DO NOT "
+    "give instant approval. Always force a strict, customized 4-Step Pre-Trade Checklist specifically aligned "
+    "with THEIR stated strategy and emotional weaknesses. Standard 4 checkpoints to adapt:\n"
+    "   - [1. Macro/News Audit]: High-Impact News events cleared?\n"
+    "   - [2. Technical Confluence]: Specific entry criteria for THEIR strategy (e.g., HTF Sweep + MSS for SMC, or Break/Retest for PA)?\n"
+    "   - [3. Risk Control]: Is risk strictly within their defined limit (<= 1%)?\n"
+    "   - [4. Emotional Intent]: Is this a planned session setup or impulsive FOMO/Revenge execution?\n\n"
+    
+    "3. TONALITY: Direct, firm, professional, and zero fluff. Treat the trader like a funded prop-firm operator."
 )
 
 TELEGRAM_MESSAGE_LIMIT = 4096
@@ -80,7 +94,7 @@ def init_db():
             setup_type TEXT NOT NULL,
             risk_pct REAL NOT NULL,
             rr_ratio REAL NOT NULL,
-            outcome TEXT NOT NULL, -- WIN, LOSS, BE
+            outcome TEXT NOT NULL,
             notes TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -104,7 +118,7 @@ def get_chat_session(chat_id: int) -> Any:
             model=GEMINI_MODEL,
             config=genai_types.GenerateContentConfig(
                 system_instruction=SYSTEM_INSTRUCTION,
-                temperature=0.4,
+                temperature=0.3,
             ),
         )
         _chat_sessions[chat_id] = session
@@ -140,7 +154,7 @@ async def send_long_message(update: Update, text: str) -> None:
         except BadRequest:
             await update.message.reply_text(chunk)
 
-async def _keep_typing(bot, chat_id: int, stop_event: asyncio.Event) -> None:
+async def _keep_typing(bot, chat_id: int, stop_event: asyncio.event) -> None:
     while not stop_event.is_set():
         try:
             await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
@@ -152,22 +166,29 @@ async def _keep_typing(bot, chat_id: int, stop_event: asyncio.Event) -> None:
             pass
 
 # --------------------------------------------------------------------------
-# Commands (Journal, Stats, Admin)
+# Commands (Journal, Stats, Onboarding)
 # --------------------------------------------------------------------------
 
 WELCOME_TEXT = (
-    "*Institutional Trading Coach* — Online.\n\n"
-    "Commands available:\n"
-    "• `/log Pair | Setup | Risk% | RR | Outcome | Notes` — Log a trade\n"
-    "  *(Example: `/log XAUUSD | FVG Sweep | 1.0 | 2.5 | WIN | Swept Asian high`)*\n"
-    "• `/stats` — View your personal performance & metrics\n"
-    "• `/journal` — View your last 5 logged trades\n"
-    "• `/reset` — Clear active conversation memory\n"
-    "• `/help` — Show this message"
+    "*Institutional Risk & Execution Coach* — Online.\n\n"
+    "Before executing trades, let's establish your trading baseline.\n\n"
+    "Please reply with:\n"
+    "1️⃣ Your Primary Strategy (e.g., SMC/ICT, Price Action, Trend Breakouts)\n"
+    "2️⃣ Max Risk Per Trade (e.g., 0.5% or 1%)\n"
+    "3️⃣ Your Biggest Execution/Psychology Mistake (e.g., FOMO, Revenge Trading)\n\n"
+    "Commands:\n"
+    "• `/log Pair | Setup | Risk% | RR | Outcome | Notes` — Log completed trade\n"
+    "• `/stats` — Your performance metrics\n"
+    "• `/reset` — Reset session memory & profile"
 )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    reset_chat_session(update.effective_chat.id)
     await update.message.reply_text(WELCOME_TEXT, parse_mode=ParseMode.MARKDOWN)
+
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    reset_chat_session(update.effective_chat.id)
+    await update.message.reply_text("🔄 Memory and session cleared. Send a message to start fresh.")
 
 async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -194,10 +215,10 @@ async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         """, (user.id, user.username or user.first_name, pair, setup, float(risk_pct), float(rr), outcome, notes))
         conn.commit()
         conn.close()
-        await update.message.reply_text(f"✅ *Trade Logged Successfully!*\nPair: `{pair}` | Outcome: `{outcome}`", parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(f"✅ *Trade Logged!* Pair: `{pair}` | Outcome: `{outcome}`", parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         logger.error("DB Error: %s", e)
-        await update.message.reply_text("⚠️ Failed to log trade. Ensure Risk and RR are numbers.")
+        await update.message.reply_text("⚠️ Failed to log. Ensure Risk% and RR are numbers.")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -223,7 +244,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     msg = (
         f"📊 *Your Execution Metrics*\n\n"
-        f"• *Total Trades Logged:* {total}\n"
+        f"• *Total Trades:* {total}\n"
         f"• *Win Rate:* {win_rate:.1f}%\n"
         f"• *Wins:* {wins} | *Losses:* {losses} | *BE:* {stats.get('BE', 0)}\n"
         f"• *Avg Risk/Trade:* {avg_risk or 0:.2f}%\n"
@@ -289,13 +310,13 @@ def main() -> None:
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("help", start_command))
+    application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("log", log_trade_command))
     application.add_handler(CommandHandler("stats", stats_command))
     application.add_handler(CommandHandler("admin_stats", admin_stats_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Bot starting with database support...")
+    logger.info("Bot starting with adaptive pre-trade checklist...")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
