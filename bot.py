@@ -1,7 +1,7 @@
 """
 Institutional Trading Coach — Telegram Bot
 ==========================================
-Organic Onboarding & Pre-Trade Execution Engine
+Block 2: Supabase PostgreSQL Connected Engine
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sqlite3
 import sys
 from typing import Any, Dict
 
@@ -17,6 +16,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
+from supabase import create_client, Client
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.error import BadRequest, TelegramError
@@ -38,9 +38,14 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
-    sys.exit("Missing required environment variables.")
+if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY or not SUPABASE_URL or not SUPABASE_KEY:
+    sys.exit("Missing required environment variables (Telegram, Gemini, or Supabase).")
+
+# Initialize Supabase Client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 SYSTEM_INSTRUCTION = (
     "You are a strict, world-class Institutional Risk Manager & Trading Coach specializing in SMC, ICT, and Gold (XAUUSD).\n\n"
@@ -71,34 +76,6 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger("trading_coach_bot")
-
-# --------------------------------------------------------------------------
-# Database Setup
-# --------------------------------------------------------------------------
-
-DB_PATH = "trading_journal.db"
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS trades (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            username TEXT,
-            pair TEXT NOT NULL,
-            setup_type TEXT NOT NULL,
-            risk_pct REAL NOT NULL,
-            rr_ratio REAL NOT NULL,
-            outcome TEXT NOT NULL,
-            notes TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-init_db()
 
 # --------------------------------------------------------------------------
 # Gemini Client & Per-Chat Sessions
@@ -202,50 +179,53 @@ async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     notes = parts[5] if len(parts) > 5 else "None"
 
     try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO trades (user_id, username, pair, setup_type, risk_pct, rr_ratio, outcome, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user.id, user.username or user.first_name, pair, setup, float(risk_pct), float(rr), outcome, notes))
-        conn.commit()
-        conn.close()
-        await update.message.reply_text(f"✅ *Trade Logged!* Pair: `{pair}` | Outcome: `{outcome}`", parse_mode=ParseMode.MARKDOWN)
+        # Insert trade record directly into Supabase PostgreSQL database
+        trade_data = {
+            "telegram_id": user.id,
+            "pair": pair,
+            "setup_type": setup,
+            "risk_pct": float(risk_pct),
+            "rr_ratio": float(rr),
+            "outcome": outcome,
+            "notes": notes,
+        }
+        supabase.table("trades").insert(trade_data).execute()
+        await update.message.reply_text(f"✅ *Trade Logged to Supabase Cloud!* Pair: `{pair}` | Outcome: `{outcome}`", parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
-        logger.error("DB Error: %s", e)
-        await update.message.reply_text("⚠️ Failed to log. Ensure Risk% and RR are valid numbers.")
+        logger.error("Supabase DB Error: %s", e)
+        await update.message.reply_text("⚠️ Failed to log to cloud database. Ensure Risk% and RR are numbers.")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT COUNT(*), outcome FROM trades WHERE user_id = ? GROUP BY outcome", (user_id,))
-    results = cursor.fetchall()
-    
-    cursor.execute("SELECT AVG(rr_ratio), AVG(risk_pct) FROM trades WHERE user_id = ?", (user_id,))
-    avg_rr, avg_risk = cursor.fetchone()
-    conn.close()
+    try:
+        response = supabase.table("trades").select("*").eq("telegram_id", user_id).execute()
+        trades = response.data
 
-    if not results:
-        await update.message.reply_text("No trades logged yet. Use `/log` to add your first trade!")
-        return
+        if not trades:
+            await update.message.reply_text("No trades logged yet. Use `/log` to add your first trade!")
+            return
 
-    stats = {outcome: count for count, outcome in results}
-    wins = stats.get("WIN", 0)
-    losses = stats.get("LOSS", 0)
-    total = sum(stats.values())
-    win_rate = (wins / total * 100) if total > 0 else 0
+        total = len(trades)
+        wins = sum(1 for t in trades if t["outcome"] == "WIN")
+        losses = sum(1 for t in trades if t["outcome"] == "LOSS")
+        be = sum(1 for t in trades if t["outcome"] == "BE")
+        
+        avg_risk = sum(float(t["risk_pct"]) for t in trades) / total
+        avg_rr = sum(float(t["rr_ratio"]) for t in trades) / total
+        win_rate = (wins / total * 100) if total > 0 else 0
 
-    msg = (
-        f"📊 *Your Execution Metrics*\n\n"
-        f"• *Total Trades:* {total}\n"
-        f"• *Win Rate:* {win_rate:.1f}%\n"
-        f"• *Wins:* {wins} | *Losses:* {losses} | *BE:* {stats.get('BE', 0)}\n"
-        f"• *Avg Risk/Trade:* {avg_risk or 0:.2f}%\n"
-        f"• *Avg RR Ratio:* {avg_rr or 0:.2f}R"
-    )
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+        msg = (
+            f"📊 *Your Cloud Metrics (Supabase)*\n\n"
+            f"• *Total Trades:* {total}\n"
+            f"• *Win Rate:* {win_rate:.1f}%\n"
+            f"• *Wins:* {wins} | *Losses:* {losses} | *BE:* {be}\n"
+            f"• *Avg Risk/Trade:* {avg_risk:.2f}%\n"
+            f"• *Avg RR Ratio:* {avg_rr:.2f}R"
+        )
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logger.error("Supabase Stats Error: %s", e)
+        await update.message.reply_text("⚠️ Error fetching performance metrics from Supabase.")
 
 async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = str(update.effective_user.id)
@@ -253,26 +233,33 @@ async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("Unauthorized.")
         return
 
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT username, COUNT(*), 
-               SUM(CASE WHEN outcome = 'WIN' THEN 1 ELSE 0 END)
-        FROM trades GROUP BY user_id
-    """)
-    rows = cursor.fetchall()
-    conn.close()
+    try:
+        response = supabase.table("trades").select("*").execute()
+        trades = response.data
 
-    if not rows:
-        await update.message.reply_text("No user data recorded yet.")
-        return
+        if not trades:
+            await update.message.reply_text("No user data recorded yet in Supabase.")
+            return
 
-    report = "👑 *Admin Overview (All Users)*\n\n"
-    for username, total, wins in rows:
-        wr = (wins / total * 100) if total > 0 else 0
-        report += f"• *@{username}*: {total} trades | Win Rate: {wr:.1f}%\n"
+        # Group stats by user
+        user_stats: Dict[int, Dict[str, Any]] = {}
+        for t in trades:
+            tid = t["telegram_id"]
+            if tid not in user_stats:
+                user_stats[tid] = {"total": 0, "wins": 0}
+            user_stats[tid]["total"] += 1
+            if t["outcome"] == "WIN":
+                user_stats[tid]["wins"] += 1
 
-    await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+        report = "👑 *Admin Overview (Supabase Cloud)*\n\n"
+        for tid, data in user_stats.items():
+            wr = (data["wins"] / data["total"] * 100) if data["total"] > 0 else 0
+            report += f"• *ID `{tid}`*: {data['total']} trades | Win Rate: {wr:.1f}%\n"
+
+        await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        logger.error("Supabase Admin Error: %s", e)
+        await update.message.reply_text("⚠️ Error fetching global analytics.")
 
 # --------------------------------------------------------------------------
 # Message Handlers
@@ -312,7 +299,7 @@ def main() -> None:
     application.add_handler(CommandHandler("admin_stats", admin_stats_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Bot online with organic onboarding flow...")
+    logger.info("Bot online with Supabase cloud database active...")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
