@@ -1,7 +1,7 @@
 """
 Institutional Trading Coach — Telegram Bot
 ==========================================
-Block 1: Personal Onboarding & Adaptive Pre-Trade Checklist Engine
+Organic Onboarding & Pre-Trade Execution Engine
 """
 
 from __future__ import annotations
@@ -45,18 +45,22 @@ if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
 SYSTEM_INSTRUCTION = (
     "You are a strict, world-class Institutional Risk Manager & Trading Coach specializing in SMC, ICT, and Gold (XAUUSD).\n\n"
     
-    "CORE PROTOCOL:\n"
-    "1. ONBOARDING MEMORY: When a user shares their Primary Strategy, Max Risk %, and Psychological Weakness, "
-    "acknowledge and lock these parameters into session memory as their 'Trader Profile'.\n\n"
+    "CORE WORKFLOW & BEHAVIOR:\n"
+    "1. FIRST CONVERSATION / ORGANIC ONBOARDING: When the user sends their first message or setup, ALWAYS respond directly to their query first. "
+    "Then, seamlessly ask them 3 concise baseline questions at the end of your response to extract their profile:\n"
+    "   - What is their Primary Strategy (e.g., SMC/ICT, Price Action, Trend)?\n"
+    "   - What is their Max Risk Per Trade (e.g., 0.5% or 1.0%)?\n"
+    "   - What is their Primary Psychological Flaw (e.g., FOMO, Revenge Trading, Overtrading)?\n\n"
     
-    "2. ADAPTIVE 4-STEP PRE-TRADE AUDIT: Whenever a user sends a trade setup, signal, or execution idea, "
-    "DO NOT give an immediate thumbs up. Force a personalized 4-step execution audit customized to THEIR profile:\n"
-    "   - [Step 1: Macro & High-Impact News]: Are major news drivers (CPI, NFP, FOMC) clear?\n"
-    "   - [Step 2: Strategy Confluence]: Does the setup meet their exact criteria (e.g., Liquidity Sweep + MSS for SMC/ICT)?\n"
-    "   - [Step 3: Hard Risk Parameter]: Is position size <= their stated max risk %?\n"
-    "   - [Step 4: Psychology Check]: Is this trade aligned with their session plan, or is it triggered by their specific weakness (e.g., FOMO, Revenge)?\n\n"
+    "2. PROFILE LOCK: Once they reply with their details, acknowledge and lock these parameters into memory as their 'Trader Profile'.\n\n"
     
-    "3. TONALITY: Direct, institutional, authoritative, and concise. No fluff."
+    "3. ADAPTIVE PRE-TRADE AUDIT: Once their profile is known, whenever they share a trade setup, run a strict, personalized 4-step checklist:\n"
+    "   - [Step 1: High-Impact News]: High-impact macro events cleared?\n"
+    "   - [Step 2: Strategy Confluence]: Does setup fit THEIR specific strategy rules?\n"
+    "   - [Step 3: Risk Parameter]: Position risk within their declared max limit?\n"
+    "   - [Step 4: Psychology Check]: Is this trade execution free from their stated psychological flaw?\n\n"
+    
+    "4. TONALITY: Direct, institutional, authoritative, and concise."
 )
 
 TELEGRAM_MESSAGE_LIMIT = 4096
@@ -161,35 +165,25 @@ async def _keep_typing(bot, chat_id: int, stop_event: asyncio.Event) -> None:
 # Handlers & Commands
 # --------------------------------------------------------------------------
 
-ONBOARDING_MESSAGE = (
-    "🛡️ *Institutional Risk & Execution Coach — Online*\n\n"
-    "Before taking any execution signals, we must define your baseline risk parameters.\n\n"
-    "Please reply to this message with:\n"
-    "1️⃣ *Primary Strategy* (e.g., SMC/ICT, Price Action, Trend Breakouts)\n"
-    "2️⃣ *Max Risk Per Trade* (e.g., 0.5% or 1.0%)\n"
-    "3️⃣ *Primary Execution Flaw* (e.g., FOMO, Revenge Trading, Overtrading)\n\n"
-    "Once replied, your profile will be locked for all pre-trade audits."
-)
-
-HELP_MESSAGE = (
-    "📋 *Available Commands*\n\n"
-    "• `/start` — Re-initialize profile & onboarding\n"
-    "• `/log Pair | Setup | Risk% | RR | Outcome | Notes` — Log executed trade\n"
-    "• `/stats` — View personal win rate & performance metrics\n"
-    "• `/reset` — Clear conversation context & session memory\n"
-    "• `/help` — Display this guide"
+WELCOME_TEXT = (
+    "Institutional Trading Coach — Online.\n\n"
+    "Commands available:\n"
+    "• `/log Pair | Setup | Risk% | RR | Outcome | Notes` — Log a trade\n"
+    "• `/stats` — View your personal performance & metrics\n"
+    "• `/reset` — Clear active conversation memory\n"
+    "• `/help` — Show available commands"
 )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reset_chat_session(update.effective_chat.id)
-    await update.message.reply_text(ONBOARDING_MESSAGE, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(WELCOME_TEXT)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(HELP_MESSAGE, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(WELCOME_TEXT)
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reset_chat_session(update.effective_chat.id)
-    await update.message.reply_text("🔄 Session cleared. Send `/start` to begin onboarding again.")
+    await update.message.reply_text("🔄 Session cleared. Send any message to begin fresh.")
 
 async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -199,7 +193,7 @@ async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if len(parts) < 5:
         await update.message.reply_text(
             "⚠️ *Invalid Format!*\nUse: `/log Pair | Setup | Risk% | RR | WIN/LOSS/BE | Notes`\n"
-            "Example:\n`/log XAUUSD | FVG Sweep | 1.0 | 3.0 | WIN | Swept Asian High`",
+            "Example:\n`/log XAUUSD | FVG Sweep | 1.0 | 3.0 | WIN | Swept Asian high`",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
@@ -318,8 +312,8 @@ def main() -> None:
     application.add_handler(CommandHandler("admin_stats", admin_stats_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Bot online with dynamic onboarding and checklist engine...")
+    logger.info("Bot online with organic onboarding flow...")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
-    main()s
+    main()
