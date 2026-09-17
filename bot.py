@@ -1,11 +1,7 @@
 """
 Institutional Trading Coach — Telegram Bot
 ==========================================
-Features:
-  - Personal Onboarding (Strategy, Risk & Psychological Profiling)
-  - Adaptive Pre-Trade Execution Checklist based on user profile
-  - SQLite Trade Journaling & Admin Tracking
-  - Powered by Gemini 3.6 Flash
+Block 1: Personal Onboarding & Adaptive Pre-Trade Checklist Engine
 """
 
 from __future__ import annotations
@@ -47,24 +43,20 @@ if not TELEGRAM_BOT_TOKEN or not GEMINI_API_KEY:
     sys.exit("Missing required environment variables.")
 
 SYSTEM_INSTRUCTION = (
-    "You are a strict, world-class Institutional Risk Manager & Trading Coach. "
-    "Your objective is to enforce maximum discipline, prevent emotional revenge trading, "
-    "and protect capital.\n\n"
+    "You are a strict, world-class Institutional Risk Manager & Trading Coach specializing in SMC, ICT, and Gold (XAUUSD).\n\n"
     
-    "BEHAVIOR RULES:\n"
-    "1. NEW USER ONBOARDING: If a user starts a conversation or seems new, ask them concise questions "
-    "to extract their trading profile: Their Primary Strategy (e.g., SMC/ICT, Chart Patterns, Price Action), "
-    "Max Risk per trade (e.g., 0.5% or 1%), and their biggest Psychological Weakness (e.g., FOMO, Early Exit, Overtrading).\n"
+    "CORE PROTOCOL:\n"
+    "1. ONBOARDING MEMORY: When a user shares their Primary Strategy, Max Risk %, and Psychological Weakness, "
+    "acknowledge and lock these parameters into session memory as their 'Trader Profile'.\n\n"
     
-    "2. ADAPTIVE PRE-TRADE CHECKLIST: Whenever a user shares a trade setup, idea, or entry signal, DO NOT "
-    "give instant approval. Always force a strict, customized 4-Step Pre-Trade Checklist specifically aligned "
-    "with THEIR stated strategy and emotional weaknesses. Standard 4 checkpoints to adapt:\n"
-    "   - [1. Macro/News Audit]: High-Impact News events cleared?\n"
-    "   - [2. Technical Confluence]: Specific entry criteria for THEIR strategy (e.g., HTF Sweep + MSS for SMC, or Break/Retest for PA)?\n"
-    "   - [3. Risk Control]: Is risk strictly within their defined limit (<= 1%)?\n"
-    "   - [4. Emotional Intent]: Is this a planned session setup or impulsive FOMO/Revenge execution?\n\n"
+    "2. ADAPTIVE 4-STEP PRE-TRADE AUDIT: Whenever a user sends a trade setup, signal, or execution idea, "
+    "DO NOT give an immediate thumbs up. Force a personalized 4-step execution audit customized to THEIR profile:\n"
+    "   - [Step 1: Macro & High-Impact News]: Are major news drivers (CPI, NFP, FOMC) clear?\n"
+    "   - [Step 2: Strategy Confluence]: Does the setup meet their exact criteria (e.g., Liquidity Sweep + MSS for SMC/ICT)?\n"
+    "   - [Step 3: Hard Risk Parameter]: Is position size <= their stated max risk %?\n"
+    "   - [Step 4: Psychology Check]: Is this trade aligned with their session plan, or is it triggered by their specific weakness (e.g., FOMO, Revenge)?\n\n"
     
-    "3. TONALITY: Direct, firm, professional, and zero fluff. Treat the trader like a funded prop-firm operator."
+    "3. TONALITY: Direct, institutional, authoritative, and concise. No fluff."
 )
 
 TELEGRAM_MESSAGE_LIMIT = 4096
@@ -77,7 +69,7 @@ logging.basicConfig(
 logger = logging.getLogger("trading_coach_bot")
 
 # --------------------------------------------------------------------------
-# Database Setup (SQLite)
+# Database Setup
 # --------------------------------------------------------------------------
 
 DB_PATH = "trading_journal.db"
@@ -154,7 +146,7 @@ async def send_long_message(update: Update, text: str) -> None:
         except BadRequest:
             await update.message.reply_text(chunk)
 
-async def _keep_typing(bot, chat_id: int, stop_event: asyncio.event) -> None:
+async def _keep_typing(bot, chat_id: int, stop_event: asyncio.Event) -> None:
     while not stop_event.is_set():
         try:
             await bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
@@ -166,42 +158,38 @@ async def _keep_typing(bot, chat_id: int, stop_event: asyncio.event) -> None:
             pass
 
 # --------------------------------------------------------------------------
-# Commands (Journal, Stats, Onboarding)
+# Handlers & Commands
 # --------------------------------------------------------------------------
 
-ONBOARDING_TEXT = (
-    "*Institutional Risk & Execution Coach* — Online.\n\n"
-    "Before I approve or review any trades, I need your baseline profile. "
-    "Reply in one message with all three:\n\n"
+ONBOARDING_MESSAGE = (
+    "🛡️ *Institutional Risk & Execution Coach — Online*\n\n"
+    "Before taking any execution signals, we must define your baseline risk parameters.\n\n"
+    "Please reply to this message with:\n"
     "1️⃣ *Primary Strategy* (e.g., SMC/ICT, Price Action, Trend Breakouts)\n"
-    "2️⃣ *Max Risk Per Trade* (e.g., 0.5% or 1%)\n"
-    "3️⃣ *Biggest Execution/Psychology Flaw* (e.g., FOMO, Revenge Trading, Overtrading)\n\n"
-    "Once I have this, every setup you bring me will be checked against *your* rules — "
-    "not generic advice.\n\n"
-    "_Type /help any time to see available commands._"
+    "2️⃣ *Max Risk Per Trade* (e.g., 0.5% or 1.0%)\n"
+    "3️⃣ *Primary Execution Flaw* (e.g., FOMO, Revenge Trading, Overtrading)\n\n"
+    "Once replied, your profile will be locked for all pre-trade audits."
 )
 
-HELP_TEXT = (
-    "*Commands:*\n"
-    "• `/start` — (Re)start onboarding and set your trading profile\n"
-    "• `/log Pair | Setup | Risk% | RR | Outcome | Notes` — Log a completed trade\n"
-    "• `/stats` — Your performance metrics\n"
-    "• `/reset` — Reset session memory & profile\n"
-    "• `/help` — Show this command list"
+HELP_MESSAGE = (
+    "📋 *Available Commands*\n\n"
+    "• `/start` — Re-initialize profile & onboarding\n"
+    "• `/log Pair | Setup | Risk% | RR | Outcome | Notes` — Log executed trade\n"
+    "• `/stats` — View personal win rate & performance metrics\n"
+    "• `/reset` — Clear conversation context & session memory\n"
+    "• `/help` — Display this guide"
 )
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reset_chat_session(update.effective_chat.id)
-    await update.message.reply_text(ONBOARDING_TEXT, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(ONBOARDING_MESSAGE, parse_mode=ParseMode.MARKDOWN)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(HELP_TEXT, parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(HELP_MESSAGE, parse_mode=ParseMode.MARKDOWN)
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     reset_chat_session(update.effective_chat.id)
-    await update.message.reply_text(
-        "🔄 Memory and session cleared.\n\n" + ONBOARDING_TEXT, parse_mode=ParseMode.MARKDOWN
-    )
+    await update.message.reply_text("🔄 Session cleared. Send `/start` to begin onboarding again.")
 
 async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -211,7 +199,7 @@ async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if len(parts) < 5:
         await update.message.reply_text(
             "⚠️ *Invalid Format!*\nUse: `/log Pair | Setup | Risk% | RR | WIN/LOSS/BE | Notes`\n"
-            "Example:\n`/log XAUUSD | FVG Sweep | 1.0 | 3.0 | WIN | Swept liquidity`",
+            "Example:\n`/log XAUUSD | FVG Sweep | 1.0 | 3.0 | WIN | Swept Asian High`",
             parse_mode=ParseMode.MARKDOWN,
         )
         return
@@ -231,7 +219,7 @@ async def log_trade_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await update.message.reply_text(f"✅ *Trade Logged!* Pair: `{pair}` | Outcome: `{outcome}`", parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
         logger.error("DB Error: %s", e)
-        await update.message.reply_text("⚠️ Failed to log. Ensure Risk% and RR are numbers.")
+        await update.message.reply_text("⚠️ Failed to log. Ensure Risk% and RR are valid numbers.")
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
@@ -293,7 +281,7 @@ async def admin_stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
 
 # --------------------------------------------------------------------------
-# Message Handlers & Core Loop
+# Message Handlers
 # --------------------------------------------------------------------------
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -312,7 +300,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         reply_text = (response.text or "").strip()
     except genai_errors.APIError as exc:
         logger.error("Gemini API error: %s", exc)
-        reply_text = "⚠️ AI Backend error. Try again in a moment."
+        reply_text = "⚠️ AI Backend error. Please try again."
     finally:
         stop_typing.set()
         await typing_task
@@ -330,8 +318,8 @@ def main() -> None:
     application.add_handler(CommandHandler("admin_stats", admin_stats_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    logger.info("Bot starting with adaptive pre-trade checklist...")
+    logger.info("Bot online with dynamic onboarding and checklist engine...")
     application.run_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True)
 
 if __name__ == "__main__":
-    main()
+    main()s
